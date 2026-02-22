@@ -649,7 +649,7 @@ if 'family_data' not in st.session_state:
         {"name": "承豐", "birth_date": date(2023, 10, 17), "category": "孟竹家"},
         {"name": "清標", "birth_date": date(1955, 10, 25), "category": "標仔家"},
         {"name": "蓮瑞", "birth_date": date(1959, 4, 8), "category": "標仔家"},
-        {"name": "子瑩", "birth_date": date(1985, 5, 29), "category": "標仔家"},
+        {"name": "子瑩", "birth_date": date(1985, 3, 29), "category": "標仔家"},
         {"name": "子欣", "birth_date": date(1987, 4, 4), "category": "標仔家"},
     ]
 
@@ -1002,4 +1002,5 @@ with tab2:
                                 </div>
                             </div>
                             """
+
                             st.markdown(html_card, unsafe_allow_html=True)
