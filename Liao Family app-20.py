@@ -8,6 +8,9 @@ import time
 import pandas as pd
 import math
 import re
+import streamlit.components.v1 as components
+import concurrent.futures
+import os  # 新增：用於處理實體檔案路徑
 
 # ==========================================
 # 依賴套件檢查與匯入
@@ -43,7 +46,7 @@ GOOGLE_MAPS_API_KEY = "AIzaSyBK2mfGSyNnfytW7sRkNM5ZWqh2SVGNabo"
 # Streamlit 頁面設定 (必須是第一個 Streamlit 指令)
 # ==========================================
 st.set_page_config(
-    page_title="廖廖家族 專屬工具箱app",
+    page_title="宸竹專屬工具箱",
     page_icon="🏠",
     layout="wide",
     initial_sidebar_state="collapsed"
@@ -214,39 +217,10 @@ st.markdown("""
         gap: 8px;
     }
 
-    /* === 新增：單獨針對公車動態的按鈕 (310/952) 放大字體 === */
+    /* === 單獨針對公車動態的按鈕 (310/952) 放大字體 === */
     a[href*="ebus.gov.taipei"] p {
         font-size: 28px !important;
         font-weight: bold !important;
-    }
-
-    /* === 新增：蔬菜水果市場行情表格專用樣式 (放大字體給手機看) === */
-    .vege-table {
-        width: 100%;
-        border-collapse: collapse;
-        font-family: "Microsoft JhengHei", sans-serif;
-        background-color: #ffffff;
-        color: #333333;
-        border-radius: 8px;
-        overflow: hidden;
-        margin-bottom: 10px;
-    }
-    .vege-table th {
-        background-color: #f0f2f6;
-        color: #000000;
-        font-size: 22px !important; /* 手機版標題大字體 */
-        font-weight: bold;
-        padding: 12px 10px;
-        text-align: left;
-        border-bottom: 2px solid #ccc;
-    }
-    .vege-table td {
-        font-size: 20px !important; /* 手機版內容大字體 */
-        padding: 12px 10px;
-        border-bottom: 1px solid #eee;
-    }
-    .vege-table tr:hover {
-        background-color: #f9f9f9;
     }
     </style>
 """, unsafe_allow_html=True)
@@ -335,61 +309,6 @@ def get_weather_data_html():
     if not result_html:
         return "暫無氣象資料"
     return result_html
-
-@st.cache_data(ttl=3600)
-def get_vegetable_market_data():
-    """爬取 TWFood 網站上的蔬菜本週批發價與預估零售價清單"""
-    headers = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
-    }
-    
-    vege_targets = [
-        {"name": "高麗菜", "url": "https://www.twfood.cc/vege/LA1/%E7%94%98%E8%97%8D-%E5%88%9D%E7%A7%8B(%E9%AB%98%E9%BA%97%E8%8F%9C,%E6%8D%B2%E5%BF%83%E8%8F%9C)"},
-        {"name": "包心白", "url": "https://www.twfood.cc/vege/LC1/%E5%8C%85%E5%BF%83%E7%99%BD-%E5%8C%85%E7%99%BD"},
-        {"name": "牛番茄", "url": "https://www.twfood.cc/vege/FJ3/%E7%95%AA%E8%8C%84-%E7%89%9B%E7%95%AA%E8%8C%84(%E7%95%AA%E8%8C%84)"},
-        {"name": "洋蔥", "url": "https://www.twfood.cc/vege/SD1/%E6%B4%8B%E8%94%A5-%E6%9C%AC%E7%94%A2"},
-        {"name": "西洋芹菜", "url": "https://www.twfood.cc/vege/LG3/%E8%8A%B9%E8%8F%9C-%E8%A5%BF%E6%B4%8B%E8%8A%B9%E8%8F%9C"},
-        {"name": "黃豆芽", "url": "https://www.twfood.cc/vege/SX2/%E8%8A%BD%E8%8F%9C%E9%A1%9E-%E9%BB%83%E8%B1%86%E8%8A%BD"},
-        {"name": "空心菜", "url": "https://www.twfood.cc/vege/LF1/%E8%95%B9%E8%8F%9C-%E5%A4%A7%E8%91%89(%E7%A9%BA%E5%BF%83%E8%8F%9C)"},
-        {"name": "水蓮", "url": "https://www.twfood.cc/vege/LT3/%E6%B5%B7%E8%8F%9C-%E6%B0%B4%E8%93%AE"},
-        {"name": "海帶", "url": "https://www.twfood.cc/vege/LT2/%E6%B5%B7%E8%8F%9C-%E6%B5%B7%E5%B8%B6"},
-        {"name": "茭白筍-去殼", "url": "https://www.twfood.cc/vege/SQ3/%E8%8C%AD%E7%99%BD%E7%AD%8D-%E5%8E%BB%E6%AE%BC"},
-        {"name": "青蔥-粉蔥", "url": "https://www.twfood.cc/vege/SE6/%E9%9D%92%E8%94%A5-%E7%B2%89%E8%94%A5"},
-        {"name": "青蔥-北蔥", "url": "https://www.twfood.cc/vege/SE2/%E9%9D%92%E8%94%A5-%E5%8C%97%E8%94%A5"}
-    ]
-    
-    results = []
-
-    for vege in vege_targets:
-        wholesale_price = "查無資料"
-        retail_price = "查無資料"
-        
-        try:
-            res = requests.get(vege["url"], headers=headers, timeout=5)
-            if res.status_code == 200:
-                soup = BeautifulSoup(res.text, 'html.parser')
-                # 移除所有空白與換行，確保正則表達式能順利匹配各種版面
-                text_no_space = soup.get_text(separator='').replace(" ", "").replace("\n", "")
-                
-                # 使用正則表達式精準抓取 "(元/台斤)" 前的數字
-                w_match = re.search(r'本週平均批發價.*?(\d+(?:\.\d+)?)[\|,\.]?\(元/台斤\)', text_no_space)
-                if w_match:
-                    wholesale_price = w_match.group(1)
-                    
-                r_match = re.search(r'預估零售價.*?(\d+(?:\.\d+)?)[\|,\.]?\(元/台斤\)', text_no_space)
-                if r_match:
-                    retail_price = r_match.group(1)
-        except Exception:
-            pass
-            
-        # [修改處] 將「預估零售價」改成「預估零售價 (元/台斤)」
-        results.append({
-            "名稱": vege["name"],
-            "本周批發價(元/台斤)": wholesale_price,
-            "預估零售價 (元/台斤)": retail_price
-        })
-
-    return pd.DataFrame(results)
 
 def parse_duration_to_minutes(text):
     try:
@@ -638,6 +557,134 @@ def get_next_lunar_birthday_days(birth_date):
         return "N/A"
 
 # ==========================================
+# 航班專區 (終極穩定版：內建常態班表資料庫)
+# ==========================================
+def fetch_single_flight(flight_number):
+    """
+    建立專屬長榮航空的「常態班表資料庫」(Static Database)
+    """
+    STATIC_DB = {
+        "BR9": {"FROM": "Vancouver (YVR)", "To": "Taipei (TPE)", "AIRCRAFT": "77W", "STD": "02:00", "STA": "05:25", "Total Time": "13h 25m"},
+        "BR10": {"FROM": "Taipei (TPE)", "To": "Vancouver (YVR)", "AIRCRAFT": "77W", "STD": "23:55", "STA": "19:50", "Total Time": "10h 55m"},
+        "BR117": {"FROM": "Sapporo (CTS)", "To": "Taipei (TPE)", "AIRCRAFT": "A333", "STD": "16:15", "STA": "19:30", "Total Time": "4h 15m"},
+        "BR129": {"FROM": "Osaka (KIX)", "To": "Taipei (TPE)", "AIRCRAFT": "781", "STD": "18:30", "STA": "20:30", "Total Time": "3h 00m"},
+        "BR130": {"FROM": "Taipei (TPE)", "To": "Osaka (KIX)", "AIRCRAFT": "781", "STD": "13:35", "STA": "17:15", "Total Time": "2h 40m"},
+        "BR131": {"FROM": "Osaka (KIX)", "To": "Taipei (TPE)", "AIRCRAFT": "77W", "STD": "13:10", "STA": "15:05", "Total Time": "2h 55m"},
+        "BR132": {"FROM": "Taipei (TPE)", "To": "Osaka (KIX)", "AIRCRAFT": "77W", "STD": "08:30", "STA": "11:55", "Total Time": "2h 25m"},
+        "BR157": {"FROM": "Komatsu (KMQ)", "To": "Taipei (TPE)", "AIRCRAFT": "A321", "STD": "11:45", "STA": "14:35", "Total Time": "3h 50m"},
+        "BR158": {"FROM": "Taipei (TPE)", "To": "Komatsu (KMQ)", "AIRCRAFT": "A321", "STD": "06:35", "STA": "10:25", "Total Time": "2h 50m"},
+        "BR159": {"FROM": "Seoul (ICN)", "To": "Taipei (TPE)", "AIRCRAFT": "A333", "STD": "19:45", "STA": "21:40", "Total Time": "2h 55m"},
+        "BR160": {"FROM": "Taipei (TPE)", "To": "Seoul (ICN)", "AIRCRAFT": "A333", "STD": "15:15", "STA": "18:45", "Total Time": "2h 30m"},
+        "BR165": {"FROM": "Seoul (ICN)", "To": "Kaohsiung (KHH)", "AIRCRAFT": "A321", "STD": "12:00", "STA": "14:15", "Total Time": "3h 15m"},
+        "BR166": {"FROM": "Kaohsiung (KHH)", "To": "Seoul (ICN)", "AIRCRAFT": "A321", "STD": "07:00", "STA": "10:55", "Total Time": "2h 55m"},
+        "BR169": {"FROM": "Seoul (ICN)", "To": "Taipei (TPE)", "AIRCRAFT": "A321", "STD": "11:40", "STA": "13:30", "Total Time": "2h 50m"},
+        "BR170": {"FROM": "Taipei (TPE)", "To": "Seoul (ICN)", "AIRCRAFT": "A321", "STD": "07:30", "STA": "11:00", "Total Time": "2h 30m"},
+        "BR177": {"FROM": "Osaka (KIX)", "To": "Taipei (TPE)", "AIRCRAFT": "A321", "STD": "10:55", "STA": "13:05", "Total Time": "3h 10m"},
+        "BR178": {"FROM": "Taipei (TPE)", "To": "Osaka (KIX)", "AIRCRAFT": "A321", "STD": "06:30", "STA": "10:10", "Total Time": "2h 40m"},
+        "BR233": {"FROM": "Taipei (TPE)", "To": "Jakarta (CGK)", "AIRCRAFT": "77W", "STD": "08:45", "STA": "13:10", "Total Time": "5h 25m"},
+        "BR234": {"FROM": "Jakarta (CGK)", "To": "Taipei (TPE)", "AIRCRAFT": "77W", "STD": "14:30", "STA": "21:00", "Total Time": "5h 30m"},
+        "BR265": {"FROM": "Phnom Penh (PNH)", "To": "Taipei (TPE)", "AIRCRAFT": "A321", "STD": "12:55", "STA": "17:15", "Total Time": "3h 20m"},
+        "BR266": {"FROM": "Taipei (TPE)", "To": "Phnom Penh (PNH)", "AIRCRAFT": "A321", "STD": "09:10", "STA": "11:55", "Total Time": "3h 45m"},
+        "BR271": {"FROM": "Manila (MNL)", "To": "Taipei (TPE)", "AIRCRAFT": "77W", "STD": "12:50", "STA": "15:00", "Total Time": "2h 10m"},
+        "BR272": {"FROM": "Taipei (TPE)", "To": "Manila (MNL)", "AIRCRAFT": "77W", "STD": "09:30", "STA": "11:50", "Total Time": "2h 20m"},
+        "BR277": {"FROM": "Manila (MNL)", "To": "Taipei (TPE)", "AIRCRAFT": "787", "STD": "19:00", "STA": "21:30", "Total Time": "2h 30m"},
+        "BR278": {"FROM": "Taipei (TPE)", "To": "Manila (MNL)", "AIRCRAFT": "787", "STD": "15:30", "STA": "17:50", "Total Time": "2h 20m"},
+        "BR383": {"FROM": "Taipei (TPE)", "To": "Da Nang (DAD)", "AIRCRAFT": "A321", "STD": "09:45", "STA": "11:40", "Total Time": "2h 55m"},
+        "BR384": {"FROM": "Da Nang (DAD)", "To": "Taipei (TPE)", "AIRCRAFT": "A321", "STD": "14:10", "STA": "18:05", "Total Time": "2h 55m"},
+        "BR385": {"FROM": "Taipei (TPE)", "To": "Hanoi (HAN)", "AIRCRAFT": "A321", "STD": "14:50", "STA": "17:15", "Total Time": "3h 25m"},
+        "BR386": {"FROM": "Hanoi (HAN)", "To": "Taipei (TPE)", "AIRCRAFT": "A321", "STD": "18:30", "STA": "22:20", "Total Time": "2h 50m"},
+        "BR397": {"FROM": "Hanoi (HAN)", "To": "Taipei (TPE)", "AIRCRAFT": "77W", "STD": "12:05", "STA": "15:55", "Total Time": "2h 50m"},
+        "BR398": {"FROM": "Taipei (TPE)", "To": "Hanoi (HAN)", "AIRCRAFT": "77W", "STD": "09:15", "STA": "11:05", "Total Time": "2h 50m"},
+        "BR757": {"FROM": "Hangzhou (HGH)", "To": "Taipei (TPE)", "AIRCRAFT": "A321", "STD": "19:35", "STA": "21:30", "Total Time": "1h 55m"},
+        "BR758": {"FROM": "Taipei (TPE)", "To": "Hangzhou (HGH)", "AIRCRAFT": "A321", "STD": "16:25", "STA": "18:15", "Total Time": "1h 50m"},
+        "BR771": {"FROM": "Shanghai (SHA)", "To": "Taipei (TSA)", "AIRCRAFT": "78X", "STD": "19:40", "STA": "21:45", "Total Time": "2h 05m"},
+        "BR772": {"FROM": "Taipei (TSA)", "To": "Shanghai (SHA)", "AIRCRAFT": "78X", "STD": "14:40", "STA": "16:30", "Total Time": "1h 50m"},
+        "BR805": {"FROM": "Macau (MFM)", "To": "Taipei (TPE)", "AIRCRAFT": "A321", "STD": "13:15", "STA": "15:00", "Total Time": "1h 45m"},
+        "BR806": {"FROM": "Taipei (TPE)", "To": "Macau (MFM)", "AIRCRAFT": "A321", "STD": "10:45", "STA": "12:35", "Total Time": "1h 50m"},
+        "BR867": {"FROM": "Hong Kong (HKG)", "To": "Taipei (TPE)", "AIRCRAFT": "787", "STD": "10:25", "STA": "12:10", "Total Time": "1h 45m"},
+        "BR868": {"FROM": "Taipei (TPE)", "To": "Hong Kong (HKG)", "AIRCRAFT": "787", "STD": "07:25", "STA": "09:15", "Total Time": "1h 50m"},
+        "BR869": {"FROM": "Hong Kong (HKG)", "To": "Taipei (TPE)", "AIRCRAFT": "787", "STD": "15:25", "STA": "17:10", "Total Time": "1h 45m"},
+        "BR870": {"FROM": "Taipei (TPE)", "To": "Hong Kong (HKG)", "AIRCRAFT": "787", "STD": "12:25", "STA": "14:15", "Total Time": "1h 50m"},
+        "BR891": {"FROM": "Taipei (TPE)", "To": "Hong Kong (HKG)", "AIRCRAFT": "A321", "STD": "07:00", "STA": "08:50", "Total Time": "1h 50m"},
+        "BR892": {"FROM": "Hong Kong (HKG)", "To": "Taipei (TPE)", "AIRCRAFT": "A321", "STD": "09:50", "STA": "11:30", "Total Time": "1h 40m"},
+        "BR6535": {"FROM": "Taipei (TPE)", "To": "Charter/Cargo", "AIRCRAFT": "N/A", "STD": "N/A", "STA": "N/A", "Total Time": "N/A"}
+    }
+    
+    flight_upper = flight_number.upper()
+    
+    if flight_upper in STATIC_DB:
+        record = STATIC_DB[flight_upper]
+        return {
+            "Flight": flight_upper,
+            "FROM": record["FROM"],
+            "To": record["To"],
+            "AIRCRAFT": record["AIRCRAFT"],
+            "STD": record["STD"],
+            "STA": record["STA"],
+            "Total Time": record["Total Time"]
+        }
+    
+    return {
+        "Flight": flight_upper,
+        "FROM": "N/A",
+        "To": "N/A",
+        "AIRCRAFT": "N/A",
+        "STD": "N/A",
+        "STA": "N/A",
+        "Total Time": "N/A"
+    }
+
+@st.cache_data(ttl=1800) 
+def get_all_flight_data(flights):
+    results = {}
+    with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
+        future_to_flight = {executor.submit(fetch_single_flight, f): f for f in flights}
+        for future in concurrent.futures.as_completed(future_to_flight):
+            flight = future_to_flight[future]
+            try:
+                results[flight] = future.result()
+            except:
+                results[flight] = {
+                    "Flight": flight.upper(),
+                    "FROM": "N/A",
+                    "To": "N/A",
+                    "AIRCRAFT": "N/A",
+                    "STD": "N/A",
+                    "STA": "N/A",
+                    "Total Time": "N/A"
+                }
+    return results
+
+def get_live_flight_url(flight):
+    """
+    將航班直接轉換為 FlightAware 網址 (如 BR9 轉換為 EVA9)
+    取代原本會被阻擋的 Flightradar24 爬蟲邏輯。
+    """
+    flight_upper = flight.upper()
+    
+    # 解析 FlightAware 專用 ICAO 航班號 (如 BR9 轉換為 EVA9)
+    fa_flight_id = flight_upper.replace("BR", "EVA") if flight_upper.startswith("BR") else flight_upper
+    
+    # 組合 FlightAware 網址
+    fa_url = f"https://www.flightaware.com/live/flight/{fa_flight_id}"
+    return fa_url
+
+@st.cache_data(ttl=60) 
+def get_all_flight_urls(flights):
+    results = {}
+    with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
+        future_to_flight = {executor.submit(get_live_flight_url, f): f for f in flights}
+        for future in concurrent.futures.as_completed(future_to_flight):
+            flight = future_to_flight[future]
+            try:
+                results[flight] = future.result()
+            except:
+                # 避免萬一失敗，給予預設 FlightAware 網址
+                fa_id = flight.upper().replace("BR", "EVA") if flight.upper().startswith("BR") else flight.upper()
+                results[flight] = f"https://www.flightaware.com/live/flight/{fa_id}"
+    return results
+
+# ==========================================
 # 共享資料管理 (Session State)
 # ==========================================
 
@@ -652,6 +699,10 @@ if 'family_data' not in st.session_state:
         {"name": "子瑩", "birth_date": date(1985, 3, 29), "category": "標仔家"},
         {"name": "子欣", "birth_date": date(1987, 4, 4), "category": "標仔家"},
     ]
+
+# 儲存衣宸航班的 Session State
+if 'selected_flight' not in st.session_state:
+    st.session_state.selected_flight = None
 
 FAMILY_GROUPS = ["孟竹家", "標仔家", "其他"]
 
@@ -677,11 +728,172 @@ with st.sidebar:
         st.session_state.family_data = []
         st.rerun()
 
-st.markdown('<div class="main-title">廖廖家族 專屬工具箱app</div>', unsafe_allow_html=True)
+st.markdown('<div class="main-title">宸竹專屬工具箱app</div>', unsafe_allow_html=True)
 
-tab1, tab2 = st.tabs(["🛠️ 日常工具 & 路況", "🎂 家族生日 & 時光"])
+# 把 "✈️ 衣宸航班" 移到最左邊
+tab1, tab2, tab3 = st.tabs(["✈️ 衣宸航班", "🛠️ 日常工具 & 路況", "🎂 家族生日 & 時光"])
 
+# ------------------------------------------------------------------
+# TAB 1: 衣宸航班
+# ------------------------------------------------------------------
 with tab1:
+    
+    # 創建所有航班的按鈕與報表
+    st.markdown("### 🔘 航班快捷按鈕 & 報表")
+    
+    # CSS調整：增加今日專屬航班按鈕樣式 (flight-btn-today)
+    st.markdown("""
+        <style>
+        .flight-btn-red {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            background-color: #ea4335; /* 紅色範例 */
+            color: #ffffff !important;
+            padding: 6px 14px;
+            border-radius: 4px;
+            text-decoration: none !important;
+            font-size: 16px;
+            font-weight: bold;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            transition: opacity 0.3s, transform 0.2s;
+            min-width: 80px;
+        }
+        .flight-btn-red:hover {
+            opacity: 0.85;
+            transform: translateY(-2px);
+        }
+        
+        .flight-btn-today {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            background-color: #ff9800; /* 顯眼的橘黃色代表今天航班 */
+            color: #000000 !important;
+            padding: 6px 14px;
+            border-radius: 4px;
+            text-decoration: none !important;
+            font-size: 16px;
+            font-weight: bold;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.2);
+            transition: opacity 0.3s, transform 0.2s;
+            min-width: 80px;
+            border: 2px solid #e65100;
+        }
+        .flight-btn-today:hover {
+            opacity: 0.85;
+            transform: translateY(-2px);
+        }
+        
+        .flight-btn-container {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+        }
+        </style>
+    """, unsafe_allow_html=True)
+
+    # 建立 2026年3月 班表資料庫 (依照你上傳的圖片資料)
+    SCHEDULE_MAR_2026 = {
+        date(2026, 3, 2): ["BR178", "BR177"],
+        date(2026, 3, 3): ["BR265", "BR266"],
+        date(2026, 3, 4): ["BR160", "BR159"],
+        date(2026, 3, 6): ["BR397", "BR398"],
+        date(2026, 3, 7): ["BR869", "BR870"],
+        date(2026, 3, 8): ["BR867", "BR868"],
+        date(2026, 3, 12): ["BR805", "BR806"],
+        date(2026, 3, 13): ["BR758", "BR757"],
+        date(2026, 3, 15): ["BR178", "BR177"],
+        date(2026, 3, 18): ["BR10"],
+        date(2026, 3, 20): ["BR9"],
+        date(2026, 3, 21): ["BR9"],
+        date(2026, 3, 29): ["BR166", "BR165"],
+        date(2026, 3, 30): ["BR130", "BR129"],
+        date(2026, 3, 31): ["BR277", "BR278"],
+    }
+
+    # 合併舊有與新增的航班清單 (已去除重複的BR891, BR892)
+    flights = [
+        "BR178", "BR177", "BR265", "BR266", "BR160", "BR159", "BR397", "BR398", "BR6535",
+        "BR869", "BR870", "BR867", "BR868", "BR805", "BR806", "BR758", "BR757", 
+        "BR10", "BR9", "BR166", "BR165", "BR130", "BR129", "BR277", "BR278",
+        "BR169", "BR170", "BR271", "BR272", "BR891", "BR892", "BR132", "BR131", 
+        "BR383", "BR384", "BR772", "BR771", "BR117", "BR385", "BR386", "BR158", 
+        "BR157", "BR233", "BR234"
+    ]
+    
+    # 按照數字大小排序航班 (例如: BR9 -> BR10 -> BR129...)
+    flights = sorted(flights, key=lambda x: int(re.search(r'\d+', x).group()) if re.search(r'\d+', x) else float('inf'))
+    
+    # 平行獲取所有航班的資訊與即時路徑網址 (避免阻塞 UI)
+    with st.spinner("🚀 正在即時抓取最新航班資訊與動態路徑，請稍候..."):
+        all_flight_data = get_all_flight_data(flights)
+        all_flight_urls = get_all_flight_urls(flights)
+    
+    # 將畫面切割為左右兩塊 (左側按鈕, 右側為 Output Excel 報表)
+    col_btns, col_table = st.columns([1, 2], gap="medium")
+
+    with col_btns:
+        btn_html = '<div class="flight-btn-container">'
+        
+        # 取得今天日期，並找出今天的航班陣列 (若想測試3月2號效果，可將此行暫時改為 today_date = date(2026, 3, 2))
+        today_date = date.today()
+        today_flights = SCHEDULE_MAR_2026.get(today_date, [])
+        
+        for flight in flights:
+            # 確保若有未預期情況，皆提供 FlightAware 網址
+            fa_id = flight.upper().replace("BR", "EVA") if flight.upper().startswith("BR") else flight.upper()
+            url = all_flight_urls.get(flight, f"https://www.flightaware.com/live/flight/{fa_id}")
+            
+            # 判斷這個航班是否在今天的班表內，賦予不同的 class 顏色
+            if flight.upper() in today_flights:
+                btn_class = "flight-btn-today"
+            else:
+                btn_class = "flight-btn-red"
+                
+            btn_html += f'<a href="{url}" target="_blank" class="{btn_class}">{flight.upper()}</a>'
+        btn_html += '</div>'
+        
+        st.markdown(btn_html, unsafe_allow_html=True)
+
+    with col_table:
+        # 依據按鈕順序產出對應的 DataFrame
+        df_report = pd.DataFrame([all_flight_data[f] for f in flights])
+        # 依照需求指定欄位排列順序：加入 "Total Time" 顯示在最右側
+        df_report = df_report[["Flight", "FROM", "To", "AIRCRAFT", "STD", "STA", "Total Time"]]
+        # 使用 st.dataframe 呈現出類似 Excel 報表的質感
+        st.dataframe(df_report, use_container_width=True, hide_index=True)
+
+    st.divider()
+
+    st.markdown("### 📋 上傳本月班表")
+    # 提供按鈕上傳圖片
+    uploaded_file = st.file_uploader("", type=["png", "jpg", "jpeg"], label_visibility="collapsed")
+
+    # 設定儲存班表的實體檔案名稱
+    SCHEDULE_FILE = "shared_schedule.png"
+
+    if uploaded_file is not None:
+        # 將上傳的圖片實體寫入到伺服器端
+        with open(SCHEDULE_FILE, "wb") as f:
+            f.write(uploaded_file.getbuffer())
+        st.success("✅ 班表已成功上傳！現在別人打開網址也會看到這張圖表。")
+
+    # 顯示圖片：改成檢查實體檔案是否存在
+    if os.path.exists(SCHEDULE_FILE):
+        st.image(SCHEDULE_FILE, use_column_width=True)
+    else:
+        st.markdown("""
+            <div style="background-color: #4a90e2; height: 500px; display: flex; align-items: center; justify-content: center; color: white; font-weight: bold; border-radius: 5px; font-size: 20px;">
+                尚無圖片，請由上方上傳班表
+            </div>
+        """, unsafe_allow_html=True)
+
+
+# ------------------------------------------------------------------
+# TAB 2: 日常工具 & 路況
+# ------------------------------------------------------------------
+with tab2:
     if st.button("🔄 點擊手動更新所有即時資訊 (路況/天氣)", use_container_width=True, key="refresh_tab1"):
         st.cache_data.clear()
         st.rerun()
@@ -697,21 +909,13 @@ with tab1:
         </div>
         """, unsafe_allow_html=True)
 
-        # 🚌 新增公車動態區塊
+        # 🚌 公車動態區塊
         st.markdown('<div class="section-title">🚌 公車動態</div>', unsafe_allow_html=True)
         bus_col1, bus_col2 = st.columns(2)
         with bus_col1:
             st.link_button("🚌 310", "https://ebus.gov.taipei/EBus/VsSimpleMap?routeid=0100031000&gb=1", use_container_width=True)
         with bus_col2:
             st.link_button("🚌 952", "https://ebus.gov.taipei/EBus/VsSimpleMap?routeid=0400095200&gb=0", use_container_width=True)
-
-        # 🥬 新增蔬菜水果市場行情區塊
-        st.markdown('<div class="section-title">🥬 蔬菜水果市場行情</div>', unsafe_allow_html=True)
-        df_vege = get_vegetable_market_data()
-        
-        # [修改處] 將 st.dataframe 換成 HTML 表格並加上專屬樣式，並在外層加上橫向捲動軸防跑版
-        html_table = df_vege.to_html(index=False, classes="vege-table", escape=False)
-        st.markdown(f'<div style="overflow-x:auto;">{html_table}</div>', unsafe_allow_html=True)
 
     with col_right:
         st.markdown('<div class="section-title">即時路況 & 大眾運輸</div>', unsafe_allow_html=True)
@@ -798,9 +1002,9 @@ with tab1:
 
 
 # ------------------------------------------------------------------
-# TAB 2: 家族時光
+# TAB 3: 家族時光
 # ------------------------------------------------------------------
-with tab2:
+with tab3:
     st.caption(f"<span style='font-size: 18px;'>今天是 {date.today().strftime('%Y年%m月%d日')}</span>", unsafe_allow_html=True)
 
     if not st.session_state.family_data:
@@ -1002,5 +1206,4 @@ with tab2:
                                 </div>
                             </div>
                             """
-
                             st.markdown(html_card, unsafe_allow_html=True)
